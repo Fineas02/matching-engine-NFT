@@ -103,6 +103,12 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Println("seller: ", sellerBalance)
+	johnAddressStr := "0x7Ac34ec4de19539E8EAE363db10F5E68133004c7"
+	johnBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(johnAddressStr), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("John: ", johnBalance)
 
 	pkStr8 := "0662c9ed2db01dfd927ca888c3d35e03f118e9673bc1fdb3d0aeaf65f9d30d48"
 	user8 := NewUser(pkStr8, 8)
@@ -111,6 +117,10 @@ func main() {
 	pkStr7 := "cc23e29b4c15d8e51820813f50fe3db1bd1d147eb285a643ecaf7f63e09abc65"
 	user7 := NewUser(pkStr7, 7)
 	ex.Users[user7.ID] = user7
+
+	johnPk := "b44a699708ae89aa94cf55736bcd2b32a2257168c337768626b5a7b1b9e9c76d"
+	john := NewUser(johnPk, 6)
+	ex.Users[john.ID] = john
 
 	e.GET("/book/:market", ex.handleGetMarket)
 	e.POST("/order", ex.handlePlaceOrder)
