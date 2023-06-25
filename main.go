@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	orderbook "github.com/fineas02/matching-engine/orderbook"
@@ -36,6 +38,7 @@ type (
 	}
 
 	Order struct {
+		UserID    int64
 		ID        int64
 		Price     float64
 		Size      float64
@@ -58,16 +61,18 @@ type (
 )
 
 type User struct {
+	ID         int64
 	PrivateKey *ecdsa.PrivateKey
 }
 
-func NewUser(privKey string) *User {
+func NewUser(privKey string, id int64) *User {
 	pk, err := crypto.HexToECDSA(privKey)
 	if err != nil {
 		panic(err)
 	}
 
 	return &User{
+		ID:         id,
 		PrivateKey: pk,
 	}
 }
@@ -85,61 +90,31 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	buyerAddressStr := "0x2692d7E65153bA4b876cB05C1e3A37482CBb41eB"
+	buyerBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(buyerAddressStr), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("buyer: ", buyerBalance)
+
+	sellerAddressStr := "0x0771fe554d8B6070d6814b8bF67057890F9Af78C"
+	sellerBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(sellerAddressStr), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("seller: ", sellerBalance)
+
+	pkStr8 := "0662c9ed2db01dfd927ca888c3d35e03f118e9673bc1fdb3d0aeaf65f9d30d48"
+	user8 := NewUser(pkStr8, 8)
+	ex.Users[user8.ID] = user8
+
+	pkStr7 := "cc23e29b4c15d8e51820813f50fe3db1bd1d147eb285a643ecaf7f63e09abc65"
+	user7 := NewUser(pkStr7, 7)
+	ex.Users[user7.ID] = user7
 
 	e.GET("/book/:market", ex.handleGetMarket)
 	e.POST("/order", ex.handlePlaceOrder)
 	e.DELETE("/order/:id", ex.cancelOrder)
-
-	// //adress := common.HexToAddress("0x32309F91b1e1D66776444e1d580eEb7B9a1B8e9f")
-
-	// privateKey, err := crypto.HexToECDSA("c57297908760fb07925613d8f57a8e4923a6d946374f7466e55450986b425be6")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// publicKey := privateKey.Public()
-	// publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	// if !ok {
-
-	// 	log.Fatal("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
-	// }
-
-	// fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-
-	// nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// value := big.NewInt(1000000000000000000) // in wei (1 eth)
-
-	// gasLimit := uint64(21000) // in units
-	// gasPrice, err := client.SuggestGasPrice(context.Background())
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// toAddress := common.HexToAddress("0x4592d8f8d7b001e72cb26a73e4fa1806a51ac79d")
-
-	// tx := types.NewTransaction(nonce, toAddress, value, gasLimit, gasPrice, nil)
-
-	// chainID := big.NewInt(1337)
-
-	// signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// if err := client.SendTransaction(context.Background(), signedTx); err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// balance, err := client.BalanceAt(ctx, toAddress, nil)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// fmt.Println(balance)
 
 	e.Start(":3000")
 }
@@ -220,6 +195,7 @@ func (ex *Exchange) handleGetMarket(c echo.Context) error {
 	for _, limit := range ob.Asks() {
 		for _, order := range limit.Orders {
 			o := Order{
+				UserID:    order.UserID,
 				ID:        order.ID,
 				Price:     limit.Price,
 				Size:      order.Size,
@@ -233,6 +209,7 @@ func (ex *Exchange) handleGetMarket(c echo.Context) error {
 	for _, limit := range ob.Bids() {
 		for _, order := range limit.Orders {
 			o := Order{
+				UserID:    order.UserID,
 				ID:        order.ID,
 				Price:     limit.Price,
 				Size:      order.Size,
@@ -277,19 +254,6 @@ func (ex *Exchange) handlePlaceLimitOrder(market Market, price float64, order *o
 	ob := ex.orderbooks[market]
 	ob.PlaceLimitOrder(price, order)
 
-	user := ex.Users[order.UserID]
-
-	exchangePubKey := ex.PrivateKey.Public()
-	publicKeyECDSA, ok := exchangePubKey.(*ecdsa.PublicKey)
-	if !ok {
-		return fmt.Errorf("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
-	}
-
-	toAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-
-	amount := big.NewInt(order.Size)
-	err := transferETH(ex.Client, user.PrivateKey, toAddress, )
-
 	return nil
 }
 
@@ -326,5 +290,28 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 }
 
 func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
+	for _, match := range matches {
+		fromUser, ok := ex.Users[match.Ask.UserID]
+		if !ok {
+			return fmt.Errorf("user not found: %d", match.Ask.UserID)
+		}
+
+		toUser, ok := ex.Users[match.Bid.UserID]
+		if !ok {
+			return fmt.Errorf("user not found: %d", match.Bid.UserID)
+		}
+		toAddress := crypto.PubkeyToAddress(toUser.PrivateKey.PublicKey)
+
+		// exchangePubKey := ex.PrivateKey.Public()
+		// publicKeyECDSA, ok := exchangePubKey.(*ecdsa.PublicKey)
+		// if !ok {
+		// 	return fmt.Errorf("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
+		// }
+
+		amount := big.NewInt(int64(match.SizeFilled))
+
+		transferETH(ex.Client, fromUser.PrivateKey, toAddress, amount)
+	}
+
 	return nil
 }
