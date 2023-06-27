@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/fineas02/matching-engine/client"
@@ -15,45 +14,43 @@ func main() {
 
 	c := client.NewClient()
 
-	bidParams := &client.PlaceLimitOrderParams{
-		UserID: 8,
-		Bid:    true,
-		Price:  10_000,
-		Size:   10_0000,
-	}
-
-	go func() {
-		for {
-			resp, err := c.PlaceLimitOrder(bidParams)
-			if err != nil {
-				panic(err)
-			}
-			fmt.Println("order id => ", resp.OrderID)
-
-			if err := c.CancelOrder(resp.OrderID); err != nil {
-				panic(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}()
-
-	askParams := &client.PlaceLimitOrderParams{
-		UserID: 6,
-		Bid:    false,
-		Price:  7_000,
-		Size:   10_0000,
-	}
-
 	for {
-
-		resp, err := c.PlaceLimitOrder(askParams)
+		limitOrderParams := &client.PlaceOrderParams{
+			UserID: 1,
+			Bid:    false,
+			Price:  10_000,
+			Size:   1_000_000,
+		}
+		_, err := c.PlaceLimitOrder(limitOrderParams)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("order id => ", resp.OrderID)
+		// fmt.Println("placed limit order from the client -> ", resp.OrderID)
+		otherLimitOrderParams := &client.PlaceOrderParams{
+			UserID: 2,
+			Bid:    false,
+			Price:  9_000,
+			Size:   1_000_000,
+		}
+		_, err = c.PlaceLimitOrder(otherLimitOrderParams)
+		if err != nil {
+			panic(err)
+		}
+		// fmt.Println("placed limit order from the client -> ", resp.OrderID)
+
+		marketOrderParams := &client.PlaceOrderParams{
+			UserID: 0,
+			Bid:    true,
+			Size:   2_000_000,
+		}
+		_, err = c.PlaceMarketOrder(marketOrderParams)
+		if err != nil {
+			panic(err)
+		}
+
+		// fmt.Println("placed market order from the client -> ", resp.OrderID)
 
 		time.Sleep(1 * time.Second)
 	}
-
 	select {}
 }

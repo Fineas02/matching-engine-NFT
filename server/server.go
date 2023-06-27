@@ -231,6 +231,8 @@ func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order
 		isBid = true
 	}
 
+	totalSizeFilled := 0.0
+	sumPrice := 0.0
 	for i := 0; i < len(matchedOrders); i++ {
 		id := matches[i].Bid.ID
 		if isBid {
@@ -242,7 +244,15 @@ func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order
 			Size:  matches[i].SizeFilled,
 			Price: matches[i].Price,
 		}
+
+		totalSizeFilled += matches[i].SizeFilled
+		sumPrice += matches[i].Price
 	}
+
+	avgPrice := sumPrice / float64(len(matches))
+
+	log.Printf(
+		"filled MARKET order => %d: | size [%.2f] | avgPrice [%.2f]", order.ID, totalSizeFilled, avgPrice)
 
 	return matches, matchedOrders
 }
@@ -281,24 +291,20 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 			return err
 		}
 
-		resp := &PlaceOrderResponse{
-			OrderID: order.ID,
-		}
-
-		return c.JSON(200, resp)
 	}
 	// Market orders
 	if placeOrderData.Type == MarketOrder {
-		matches, matchedOrders := ex.handlePlaceMarketOrder(market, order)
+		matches, _ := ex.handlePlaceMarketOrder(market, order)
 
 		if err := ex.handleMatches(matches); err != nil {
 			return err
 		}
 
-		return c.JSON(200, map[string]any{"matches": matchedOrders})
 	}
-
-	return nil
+	resp := &PlaceOrderResponse{
+		OrderID: order.ID,
+	}
+	return c.JSON(200, resp)
 }
 
 func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
