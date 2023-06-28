@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-
 type Match struct {
 	Ask        *Order
 	Bid        *Order
