@@ -15,9 +15,7 @@ const (
 )
 
 var (
-	tick   = 1 * time.Second
-	myAsks = make(map[float64]int64)
-	myBids = make(map[float64]int64)
+	tick = 1 * time.Second
 )
 
 func marketOrderPlacer(c *client.Client) {
@@ -50,6 +48,11 @@ func makeMarketSimple(c *client.Client) {
 	ticker := time.NewTicker(tick)
 
 	for {
+		orders, err := c.GetOrders(1)
+		if err != nil {
+			log.Println(err)
+		}
+
 		bestAsk, err := c.GetBestAsk()
 		if err != nil {
 			log.Println(err)
@@ -62,7 +65,7 @@ func makeMarketSimple(c *client.Client) {
 		spread := math.Abs(bestBid - bestAsk)
 		fmt.Println("exchange spread ", spread)
 
-		if len(myBids) < 3 {
+		if len(orders.Bids) < 3 {
 			bidLimit := &client.PlaceOrderParams{
 				UserID: 1,
 				Bid:    true,
@@ -73,9 +76,8 @@ func makeMarketSimple(c *client.Client) {
 			if err != nil {
 				log.Println(bidOrderResp.OrderID)
 			}
-			myBids[bidLimit.Price] = bidOrderResp.OrderID
 		}
-		if len(myAsks) < 3 {
+		if len(orders.Asks) < 3 {
 			askLimit := &client.PlaceOrderParams{
 				UserID: 1,
 				Bid:    false,
@@ -86,7 +88,6 @@ func makeMarketSimple(c *client.Client) {
 			if err != nil {
 				log.Println(askOrderResp.OrderID)
 			}
-			myAsks[askLimit.Price] = askOrderResp.OrderID
 		}
 
 		fmt.Println("best ask price ", bestAsk)
