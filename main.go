@@ -25,14 +25,23 @@ func marketOrderPlacer(c *client.Client) {
 		marketSell := &client.PlaceOrderParams{
 			UserID: 0,
 			Bid:    false,
-			Size:   1000,
+			Size:   5000,
 		}
 		orderResp, err := c.PlaceMarketOrder(marketSell)
 		if err != nil {
 			log.Println(orderResp.OrderID)
 		}
+		otherMarketSell := &client.PlaceOrderParams{
+			UserID: 1,
+			Bid:    false,
+			Size:   1000,
+		}
+		orderResp, err = c.PlaceMarketOrder(otherMarketSell)
+		if err != nil {
+			log.Println(orderResp.OrderID)
+		}
 		marketBuyOrder := &client.PlaceOrderParams{
-			UserID: 0,
+			UserID: 2,
 			Bid:    true,
 			Size:   1000,
 		}
@@ -79,7 +88,7 @@ func makeMarketSimple(c *client.Client) {
 		}
 		if len(orders.Asks) < 3 {
 			askLimit := &client.PlaceOrderParams{
-				UserID: 1,
+				UserID: 0,
 				Bid:    false,
 				Price:  bestAsk - 100,
 				Size:   1000,
@@ -109,33 +118,33 @@ func seedMarket(c *client.Client) error {
 		Price:  9_000,
 		Size:   1_000_000,
 	}
-	ask2 := &client.PlaceOrderParams{
-		UserID: 0,
-		Bid:    false,
-		Price:  9_000,
-		Size:   1_000_000,
-	}
-	market := &client.PlaceOrderParams{
-		UserID: 2,
-		Bid:    true,
-		Size:   1_500_000,
-	}
+	// ask2 := &client.PlaceOrderParams{
+	// 	UserID: 0,
+	// 	Bid:    false,
+	// 	Price:  9_000,
+	// 	Size:   1_000_000,
+	// }
+	// market := &client.PlaceOrderParams{
+	// 	UserID: 2,
+	// 	Bid:    true,
+	// 	Size:   1_500_000,
+	// }
 	_, err := c.PlaceLimitOrder(ask)
 	if err != nil {
 		return err
 	}
-	_, err = c.PlaceLimitOrder(ask2)
-	if err != nil {
-		return err
-	}
+	// _, err = c.PlaceLimitOrder(ask2)
+	// if err != nil {
+	// 	return err
+	// }
 	_, err = c.PlaceLimitOrder(bid)
 	if err != nil {
 		return err
 	}
-	_, err = c.PlaceMarketOrder(market)
-	if err != nil {
-		return err
-	}
+	// _, err = c.PlaceMarketOrder(market)
+	// if err != nil {
+	// 	return err
+	// }
 	return nil
 }
 
@@ -153,64 +162,8 @@ func main() {
 	go makeMarketSimple(c)
 
 	time.Sleep(1 * time.Second)
+
 	marketOrderPlacer(c)
-	// limitOrderParams := &client.PlaceOrderParams{
-	// 	UserID: 1,
-	// 	Bid:    false,
-	// 	Price:  10_000,
-	// 	Size:   5_000_000,
-	// }
-	// _, err := c.PlaceLimitOrder(limitOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// // fmt.Println("placed limit order from the client -> ", resp.OrderID)
-	// otherLimitOrderParams := &client.PlaceOrderParams{
-	// 	UserID: 2,
-	// 	Bid:    true,
-	// 	Price:  8_000,
-	// 	Size:   1_000_000,
-	// }
-	// _, err = c.PlaceLimitOrder(otherLimitOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// // fmt.Println("placed limit order from the client -> ", resp.OrderID)
-	// askLimitOrderParams := &client.PlaceOrderParams{
-	// 	UserID: 2,
-	// 	Bid:    true,
-	// 	Price:  10_000,
-	// 	Size:   3_000_000,
-	// }
-	// _, err = c.PlaceLimitOrder(askLimitOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// marketOrderParams := &client.PlaceOrderParams{
-	// 	UserID: 0,
-	// 	Bid:    false,
-	// 	Size:   2_000_000,
-	// }
-	// _, err = c.PlaceMarketOrder(marketOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// bestBidPrice, err := c.GetBestBid()
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// bestAskPrice, err := c.GetBestAsk()
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// fmt.Println("best bid price ", bestBidPrice)
-	// fmt.Println("best ask price ", bestAskPrice)
-	// // fmt.Println("placed market order from the client -> ", resp.OrderID)
-
-	// time.Sleep(1 * time.Second)
 
 	select {}
 }

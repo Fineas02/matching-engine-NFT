@@ -134,7 +134,7 @@ func (c *Client) GetOrders(userID int64) (*server.GetOrdersResponse, error) {
 		return nil, err
 	}
 
-	return nil, nil
+	return &orders, nil
 
 }
 
