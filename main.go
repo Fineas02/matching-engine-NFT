@@ -10,10 +10,6 @@ import (
 	"github.com/fineas02/matching-engine/server"
 )
 
-const (
-	maxOrders = 3
-)
-
 var (
 	tick = 1 * time.Second
 )
@@ -22,6 +18,16 @@ func marketOrderPlacer(c *client.Client) {
 	ticker := time.NewTicker(tick)
 
 	for {
+
+		trades, err := c.GetTrades("ETH")
+		if err != nil {
+			panic(err)
+		}
+
+		if len(trades) > 0 {
+			fmt.Printf("%+v\n", trades[len(trades)-1].Price)
+		}
+
 		marketSell := &client.PlaceOrderParams{
 			UserID: 0,
 			Bid:    false,
