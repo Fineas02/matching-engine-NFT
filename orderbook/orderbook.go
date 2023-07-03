@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Trade struct {
@@ -264,6 +266,12 @@ func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 		}
 	}
 
+	logrus.WithFields(logrus.Fields{
+		"price":  limit.Price,
+		"type":   o.Type(),
+		"size":   o.Size,
+		"userID": o.UserID,
+	}).Info("new limit order")
 	ob.Orders[o.ID] = o
 	limit.AddOrder(o)
 }
