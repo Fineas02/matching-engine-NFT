@@ -275,6 +275,12 @@ func (ex *Exchange) handleGetOrders(c echo.Context) error {
 	}
 
 	for i := 0; i < len(orderbookOrders); i++ {
+		// If the limit hasn't been cleared yet, the filled orders at that level
+		// will be appended to the get orders. Check if limit is nil to avoid this
+		if orderbookOrders[i].Limit == nil {
+			continue
+		}
+
 		order := Order{
 			ID:        orderbookOrders[i].ID,
 			UserID:    orderbookOrders[i].UserID,

@@ -105,6 +105,10 @@ type PlaceOrderParams struct {
 }
 
 func (c *Client) PlaceLimitOrder(p *PlaceOrderParams) (*server.PlaceOrderResponse, error) {
+	if p.Size == 0.0 {
+		return nil, fmt.Errorf("size cannot be zero for a limit order")
+	}
+
 	params := &server.PlaceOrderRequest{
 		UserID: p.UserID,
 		Type:   server.LimitOrder,

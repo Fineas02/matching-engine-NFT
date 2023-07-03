@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/fineas02/matching-engine/client"
+	mm "github.com/fineas02/matching-engine/marketmaker"
 	"github.com/fineas02/matching-engine/server"
 )
 
@@ -12,14 +13,23 @@ const ethPrice = 1962.0
 
 func main() {
 	go server.StartServer()
-
 	time.Sleep(1 * time.Second)
 
 	c := client.NewClient()
 
-	go makeMarketSimple(c)
-	time.Sleep(1 * time.Second)
+	cfg := mm.Config{
+		UserID:         0,
+		OrderSize:      10,
+		MinSpread:      20,
+		MakeInterval:   1 * time.Second,
+		SeedOffset:     40,
+		ExchangeClient: c,
+	}
+	maker := mm.NewMarketMaker(cfg)
 
+	maker.Strart()
+
+	time.Sleep(1 * time.Second)
 	go marketOrderPlacer(c)
 
 	select {}
@@ -27,7 +37,7 @@ func main() {
 
 func marketOrderPlacer(c *client.Client) {
 
-	ticker := time.NewTicker(250 * time.Millisecond)
+	ticker := time.NewTicker(1000 * time.Millisecond)
 
 	for {
 		buyOrder := client.PlaceOrderParams{

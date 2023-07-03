@@ -111,10 +111,25 @@ func (l *Limit) DeleteOrder(o *Order) {
 	sort.Sort(l.Orders)
 }
 
-func (l *Limit) Fill(o *Order) []Match {
+// function for getting all orders. Not for production use
+// exposes too much of the internal state
+func (ob *Orderbook) GetAllOrders() []*Order {
+	ob.mu.RLock() // read lock
+	defer ob.mu.RUnlock()
+
+	orders := make([]*Order, 0, len(ob.Orders))
+	for _, order := range ob.Orders {
+		orders = append(orders, order)
+	}
+	return orders
+}
+
+
+func (l *Limit) Fill(o *Order) ([]Match, []int64) {
 	var (
-		matches        []Match
-		ordersToDelete []*Order
+		matches         []Match
+		ordersToDelete  []*Order
+		filledOrdersIDs []int64
 	)
 
 	for _, order := range l.Orders {
@@ -122,8 +137,9 @@ func (l *Limit) Fill(o *Order) []Match {
 			break
 		}
 
-		match := l.fillOrder(order, o)
+		match, filledOrders := l.fillOrder(order, o)
 		matches = append(matches, match)
+		filledOrdersIDs = append(filledOrdersIDs, filledOrders...)
 
 		l.TotalVolume -= match.SizeFilled
 
@@ -136,14 +152,15 @@ func (l *Limit) Fill(o *Order) []Match {
 		l.DeleteOrder(order)
 	}
 
-	return matches
+	return matches, filledOrdersIDs
 }
 
-func (l *Limit) fillOrder(a, b *Order) Match {
+func (l *Limit) fillOrder(a, b *Order) (Match, []int64) {
 	var (
-		bid        *Order
-		ask        *Order
-		sizeFilled float64
+		bid          *Order
+		ask          *Order
+		sizeFilled   float64
+		filledOrders []int64
 	)
 
 	if a.Bid {
@@ -164,12 +181,19 @@ func (l *Limit) fillOrder(a, b *Order) Match {
 		a.Size = 0.0
 	}
 
+	if a.Size == 0.0 {
+		filledOrders = append(filledOrders, a.ID)
+	}
+	if b.Size == 0.0 {
+		filledOrders = append(filledOrders, b.ID)
+	}
+
 	return Match{
 		Bid:        bid,
 		Ask:        ask,
 		SizeFilled: sizeFilled,
 		Price:      l.Price,
-	}
+	}, filledOrders
 }
 
 type Orderbook struct {
@@ -207,8 +231,12 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 		}
 
 		for _, limit := range ob.Asks() {
-			limitMatches := limit.Fill(o)
+			limitMatches, filledOrders := limit.Fill(o)
 			matches = append(matches, limitMatches...)
+
+			for _, id := range filledOrders {
+				delete(ob.Orders, id)
+			}
 
 			if len(limit.Orders) == 0 {
 				ob.clearLimit(false, limit)
@@ -220,8 +248,12 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 		}
 
 		for _, limit := range ob.Bids() {
-			limitMatches := limit.Fill(o)
+			limitMatches, filledOrders := limit.Fill(o)
 			matches = append(matches, limitMatches...)
+
+			for _, id := range filledOrders {
+				delete(ob.Orders, id)
+			}
 
 			if len(limit.Orders) == 0 {
 				ob.clearLimit(true, limit)
@@ -238,6 +270,10 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 		}
 		ob.Trades = append(ob.Trades, trade)
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"currentPrice": ob.Trades[len(ob.Trades)-1].Price,
+	}).Info()
 
 	return matches
 }
@@ -277,6 +313,11 @@ func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 }
 
 func (ob *Orderbook) clearLimit(bid bool, l *Limit) {
+	// Delete each order in this limit from the Orderbook's Orders map
+	for _, order := range l.Orders {
+		delete(ob.Orders, order.ID)
+	}
+
 	if bid {
 		delete(ob.BidLimits, l.Price)
 		for i := 0; i < len(ob.bids); i++ {
