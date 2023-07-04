@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	exchangePrivateKey           = "c57297908760fb07925613d8f57a8e4923a6d946374f7466e55450986b425be6"
+	exchangePrivateKey           = "add53f9a7e588d003326d1cbf9e4a43c061aadd9bc938c843a79e7b4fd2ad743"
 	MarketOrder        OrderType = "MARKET"
 	LimitOrder         OrderType = "LIMIT"
 	MarketETH          Market    = "ETH"
@@ -68,12 +68,18 @@ type (
 	}
 )
 
+//	type User struct {
+//		ID         int64
+//		PrivateKey *ecdsa.PrivateKey
+//	}
 type User struct {
-	ID         int64
+	ID         string
+	Balances   map[string]float64
+	Positions  []Position
 	PrivateKey *ecdsa.PrivateKey
 }
 
-func NewUser(privKey string, id int64) *User {
+func NewUser(id string, privKey string) *User {
 	pk, err := crypto.HexToECDSA(privKey)
 	if err != nil {
 		panic(err)
@@ -81,6 +87,8 @@ func NewUser(privKey string, id int64) *User {
 
 	return &User{
 		ID:         id,
+		Balances:   make(map[string]float64),
+		Positions:  []Position{},
 		PrivateKey: pk,
 	}
 }
@@ -98,25 +106,32 @@ func StartServer() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// buyerAddressStr := "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
-	// buyerBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(buyerAddressStr), nil)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// fmt.Println("buyer: ", buyerBalance)
+	buyerAddressStr := "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
+	buyerBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(buyerAddressStr), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("buyer: ", buyerBalance)
 
-	// sellerAddressStr := "0xFFcf8FDEE72ac11b5c542428B35EEF5769C409f0"
-	// sellerBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(sellerAddressStr), nil)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// fmt.Println("seller: ", sellerBalance)
-	// johnAddressStr := "0x22d491Bde2303f2f43325b2108D26f1eAbA1e32b"
-	// johnBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(johnAddressStr), nil)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// fmt.Println("John: ", johnBalance)
+	sellerAddressStr := "0xFFcf8FDEE72ac11b5c542428B35EEF5769C409f0"
+	sellerBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(sellerAddressStr), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("seller: ", sellerBalance)
+	johnAddressStr := "0x22d491Bde2303f2f43325b2108D26f1eAbA1e32b"
+	johnBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(johnAddressStr), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("John: ", johnBalance)
+
+	exchangeAddressString := "0xd03ea8624C8C5987235048901fB614fDcA89b117"
+	exchangeBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(exchangeAddressString), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Print("Exchange: ", exchangeBalance, "\n")
 
 	ex.registerUser("4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d", 0)
 	ex.registerUser("6cbed15c793ce57650b9877cf6fa156fbef513c4e6134f022a85b1ffdd59b2a1", 1)
@@ -451,6 +466,62 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 	}
 	return c.JSON(200, resp)
 }
+
+// func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
+// 	makerFeeRate := 0.1 // 10% maker fee
+// 	takerFeeRate := 0.3 // 30% taker fee
+
+// 	for _, match := range matches {
+// 		maker, ok := ex.Users[match.Ask.UserID]
+// 		if !ok {
+// 			return fmt.Errorf("user not found: %d", match.Ask.UserID)
+// 		}
+
+// 		taker, ok := ex.Users[match.Bid.UserID]
+// 		if !ok {
+// 			return fmt.Errorf("user not found: %d", match.Bid.UserID)
+// 		}
+
+// 		// Calculate the fees
+// 		makerFee := match.SizeFilled * makerFeeRate
+// 		takerFee := match.SizeFilled * takerFeeRate
+
+// 		// Deduct the fees from the filled size
+// 		makerAmount := match.SizeFilled - makerFee
+// 		takerAmount := match.SizeFilled - takerFee
+
+// 		// Transfer from maker to taker
+// 		makerAddress := crypto.PubkeyToAddress(maker.PrivateKey.PublicKey)
+// 		takerAddress := crypto.PubkeyToAddress(taker.PrivateKey.PublicKey)
+// 		err := transferETH(ex.Client, maker.PrivateKey, takerAddress, big.NewInt(int64(makerAmount)))
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		// Transfer from taker to maker
+// 		err = transferETH(ex.Client, taker.PrivateKey, makerAddress, big.NewInt(int64(takerAmount)))
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		// Transfer fees to the exchange's address
+// 		exchangeAddress := crypto.PubkeyToAddress(ex.PrivateKey.PublicKey)
+
+// 		// Transfer fee from maker to the exchange
+// 		err = transferETH(ex.Client, maker.PrivateKey, exchangeAddress, big.NewInt(int64(makerFee)))
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		// Transfer fee from taker to the exchange
+// 		err = transferETH(ex.Client, taker.PrivateKey, exchangeAddress, big.NewInt(int64(takerFee)))
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+
+// 	return nil
+// }
 
 func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
 	for _, match := range matches {

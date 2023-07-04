@@ -35,7 +35,7 @@ func main() {
 
 func marketOrderPlacer(c *client.Client) {
 
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(50 * time.Millisecond)
 
 	for {
 		randint := rand.Intn(10)

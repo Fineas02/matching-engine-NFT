@@ -2,9 +2,10 @@ package orderbook
 
 import (
 	"fmt"
-	"math/rand"
+	"runtime/debug"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -39,10 +40,13 @@ func (o Orders) Len() int           { return len(o) }
 func (o Orders) Swap(i, j int)      { o[i], o[j] = o[j], o[i] }
 func (o Orders) Less(i, j int) bool { return o[i].Timestamp < o[j].Timestamp }
 
+var idCounter int64
+
 func NewOrder(bid bool, size float64, userID int64) *Order {
+	newID := atomic.AddInt64(&idCounter, 1)
 	return &Order{
 		UserID:    userID,
-		ID:        int64(rand.Intn(10000000)),
+		ID:        newID,
 		Size:      size,
 		Bid:       bid,
 		Timestamp: time.Now().UnixNano(),
@@ -151,6 +155,16 @@ func (l *Limit) Fill(o *Order) ([]Match, []int64, []*Order) {
 }
 
 func (l *Limit) fillOrder(a, b *Order) (Match, []int64) {
+	if a == nil {
+		fmt.Println("Order 'a' is nil")
+		debug.PrintStack()
+		panic("Order 'a' is nil")
+	}
+	if b == nil {
+		fmt.Println("Order 'b' is nil")
+		debug.PrintStack()
+		panic("Order 'b' is nil")
+	}
 	var (
 		bid          *Order
 		ask          *Order
@@ -216,7 +230,6 @@ func NewOrderbook() *Orderbook {
 
 func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 	ob.mu.Lock()
-	defer ob.mu.Unlock()
 
 	matches := []Match{}
 
@@ -264,6 +277,8 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 		}
 	}
 
+	ob.mu.Unlock() //unlock before the loop begins
+
 	for _, match := range matches {
 		trade := &Trade{
 			Price:     match.Price,
@@ -282,10 +297,9 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 }
 
 func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
-	var limit *Limit
-
 	ob.mu.Lock()
-	defer ob.mu.Unlock()
+
+	var limit *Limit
 
 	if o.Bid {
 		limit = ob.BidLimits[price]
@@ -305,17 +319,25 @@ func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 		}
 	}
 
+	ob.Orders[o.ID] = o
+	ob.mu.Unlock()
+
 	logrus.WithFields(logrus.Fields{
 		"price":  limit.Price,
 		"type":   o.Type(),
 		"size":   o.Size,
 		"userID": o.UserID,
 	}).Info("new limit order")
-	ob.Orders[o.ID] = o
+
 	limit.AddOrder(o)
 }
 
 func (ob *Orderbook) clearLimit(bid bool, l *Limit) {
+	if l == nil {
+		fmt.Println("Limit is nil!")
+		debug.PrintStack()
+		panic("Limit is nil")
+	}
 	// Delete each order in this limit from the Orderbook's Orders map
 	for _, order := range l.Orders {
 		delete(ob.Orders, order.ID)
