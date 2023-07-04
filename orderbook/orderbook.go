@@ -124,8 +124,7 @@ func (ob *Orderbook) GetAllOrders() []*Order {
 	return orders
 }
 
-
-func (l *Limit) Fill(o *Order) ([]Match, []int64) {
+func (l *Limit) Fill(o *Order) ([]Match, []int64, []*Order) {
 	var (
 		matches         []Match
 		ordersToDelete  []*Order
@@ -148,11 +147,7 @@ func (l *Limit) Fill(o *Order) ([]Match, []int64) {
 		}
 	}
 
-	for _, order := range ordersToDelete {
-		l.DeleteOrder(order)
-	}
-
-	return matches, filledOrdersIDs
+	return matches, filledOrdersIDs, ordersToDelete
 }
 
 func (l *Limit) fillOrder(a, b *Order) (Match, []int64) {
@@ -231,11 +226,15 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 		}
 
 		for _, limit := range ob.Asks() {
-			limitMatches, filledOrders := limit.Fill(o)
+			limitMatches, filledOrders, ordersToDelete := limit.Fill(o)
 			matches = append(matches, limitMatches...)
 
 			for _, id := range filledOrders {
 				delete(ob.Orders, id)
+			}
+
+			for _, order := range ordersToDelete {
+				limit.DeleteOrder(order)
 			}
 
 			if len(limit.Orders) == 0 {
@@ -248,11 +247,15 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 		}
 
 		for _, limit := range ob.Bids() {
-			limitMatches, filledOrders := limit.Fill(o)
+			limitMatches, filledOrders, ordersToDelete := limit.Fill(o)
 			matches = append(matches, limitMatches...)
 
 			for _, id := range filledOrders {
 				delete(ob.Orders, id)
+			}
+
+			for _, order := range ordersToDelete {
+				limit.DeleteOrder(order)
 			}
 
 			if len(limit.Orders) == 0 {

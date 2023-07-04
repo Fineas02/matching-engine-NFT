@@ -14,6 +14,7 @@ type Config struct {
 	SeedOffset     float64
 	ExchangeClient *client.Client
 	MakeInterval   time.Duration
+	PriceOffset    float64
 }
 
 type MarketMaker struct {
@@ -21,6 +22,7 @@ type MarketMaker struct {
 	orderSize      float64
 	minSpread      float64
 	seedOffset     float64
+	priceOffset    float64
 	exchangeClient *client.Client
 	makeInterval   time.Duration
 }
@@ -33,16 +35,19 @@ func NewMarketMaker(cfg Config) *MarketMaker {
 		seedOffset:     cfg.SeedOffset,
 		exchangeClient: cfg.ExchangeClient,
 		makeInterval:   cfg.MakeInterval,
+		priceOffset:    cfg.PriceOffset,
 	}
 }
 
-func (mm *MarketMaker) Strart() {
+func (mm *MarketMaker) Start() {
 	logrus.WithFields(logrus.Fields{
 		"id":           mm.userID,
 		"orderSize":    mm.orderSize,
 		"makeInterval": mm.makeInterval,
 		"minSpread":    mm.minSpread,
+		"priceOffset":  mm.priceOffset,
 	}).Info("starting market maker")
+
 	go mm.makerLoop()
 }
 
@@ -55,19 +60,57 @@ func (mm *MarketMaker) makerLoop() {
 			logrus.Error(err)
 			break
 		}
+
 		bestAsk, err := mm.exchangeClient.GetBestAsk()
 		if err != nil {
 			logrus.Error(err)
+			break
 		}
-		if bestAsk == 0 && bestBid == 0 {
+
+		if bestAsk.Price == 0 && bestBid.Price == 0 {
 			if err := mm.seedMarket(); err != nil {
 				logrus.Error(err)
 				break
 			}
+			continue
+		}
+
+		if bestBid.Price == 0 {
+			bestBid.Price = bestAsk.Price - mm.priceOffset*2
+		}
+
+		if bestAsk.Price == 0 {
+			bestAsk.Price = bestBid.Price + mm.priceOffset*2
+		}
+
+		spread := bestAsk.Price - bestBid.Price
+
+		if spread <= mm.minSpread {
+			continue
+		}
+
+		if err := mm.placeOrder(true, bestBid.Price+mm.priceOffset); err != nil {
+			logrus.Error(err)
+			break
+		}
+		if err := mm.placeOrder(false, bestAsk.Price-mm.priceOffset); err != nil {
+			logrus.Error(err)
+			break
 		}
 
 		<-ticker.C
 	}
+}
+
+func (mm *MarketMaker) placeOrder(bid bool, price float64) error {
+	bidOrder := &client.PlaceOrderParams{
+		UserID: mm.userID,
+		Size:   mm.orderSize,
+		Bid:    bid,
+		Price:  price,
+	}
+	_, err := mm.exchangeClient.PlaceLimitOrder(bidOrder)
+	return err
 }
 
 func (mm *MarketMaker) seedMarket() error {
@@ -76,7 +119,7 @@ func (mm *MarketMaker) seedMarket() error {
 	logrus.WithFields(logrus.Fields{
 		"currentETHPrice": currentPrice,
 		"seedOffset":      mm.seedOffset,
-	}).Info("orderbooks empty -> seeding market!")
+	}).Info("orderbooks empty => seeding market!")
 
 	bidOrder := &client.PlaceOrderParams{
 		UserID: mm.userID,
@@ -96,12 +139,14 @@ func (mm *MarketMaker) seedMarket() error {
 		Price:  currentPrice + mm.seedOffset,
 	}
 	_, err = mm.exchangeClient.PlaceLimitOrder(askOrder)
-	return err
 
+	return err
 }
 
+// this will simulate a call to an other exchange fetching
+// the current ETH price so we can offset both for a bid and ask.
 func simulateFetchCurrentETHPrice() float64 {
-	time.Sleep(70 * time.Millisecond)
+	time.Sleep(80 * time.Millisecond)
 
 	return 1000.0
 }

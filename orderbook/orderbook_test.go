@@ -141,24 +141,24 @@ func TestCancelOrderBid(t *testing.T) {
 	assert(t, ok, false)
 }
 
-// func TestPlaceLargeNumberOfOrders(t *testing.T) {
-// 	ob := NewOrderbook()
+func TestPlaceLargeNumberOfOrders(t *testing.T) {
+	ob := NewOrderbook()
 
-// 	const ordersCount = 100_000
-// 	for i := 0; i < ordersCount; i++ {
-// 		price := float64(1 + rand.Intn(1_000))
-// 		order := NewOrder(rand.Intn(2) == 0, rand.Float64()*100, rand.Int63())
-// 		ob.PlaceLimitOrder(price, order)
-// 	}
+	const ordersCount = 1000000
+	for i := 0; i < ordersCount; i++ {
+		price := float64(1 + rand.Intn(1_000))
+		order := NewOrder(rand.Intn(2) == 0, rand.Float64()*100, rand.Int63())
+		ob.PlaceLimitOrder(price, order)
+	}
 
-// 	if len(ob.Orders) != ordersCount {
-// 		t.Errorf("Expected orders count to be %d, got %d", ordersCount, len(ob.Orders))
-// 	}
-// }
+	if len(ob.Orders) != ordersCount {
+		t.Errorf("Expected orders count to be %d, got %d", ordersCount, len(ob.Orders))
+	}
+}
 
 func TestPlaceAndFillOrdersConcurrently(t *testing.T) {
 	ob := NewOrderbook()
-	numOrders := 10000
+	numOrders := 100000
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -177,21 +177,22 @@ func TestPlaceAndFillOrdersConcurrently(t *testing.T) {
 	// Place and fill market orders concurrently
 	go func() {
 		defer wg.Done()
-		for i := 0; i < numOrders; {
+		for i := 0; i < numOrders; i++ {
 			size := rand.Float64() * 100
 			ask := NewOrder(false, size, int64(i))
 
-			// Wait for enough bid volume to exist
-			for ob.BidTotalVolume() < size {
-				time.Sleep(time.Millisecond)
+			// Try to place market order only if enough bid volume exists
+			if ob.BidTotalVolume() < size {
+				i--                          // decrement index so this iteration will be tried again
+				time.Sleep(time.Millisecond) // sleep to prevent a tight loop
+				continue
 			}
 
 			ob.PlaceMarketOrder(ask)
-			i++
 		}
 	}()
 
-	wg.Wait()
+	wg.Wait() // Make sure to wait for the goroutines to finish
 
 	if len(ob.Orders) != numOrders {
 		t.Errorf("Expected orders count to be %d, got %d", numOrders, len(ob.Orders))
