@@ -1,30 +1,22 @@
 package server
 
 import (
-	"context"
-	"crypto/ecdsa"
-	"encoding/json"
 	"fmt"
 	"log"
-	"math/big"
 	"net/http"
 	"strconv"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/fineas02/matching-engine/margin"
 	orderbook "github.com/fineas02/matching-engine/orderbook"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	exchangePrivateKey           = "add53f9a7e588d003326d1cbf9e4a43c061aadd9bc938c843a79e7b4fd2ad743"
-	MarketOrder        OrderType = "MARKET"
-	LimitOrder         OrderType = "LIMIT"
-	MarketETH          Market    = "ETH"
+	MarketOrder OrderType = "MARKET"
+	LimitOrder  OrderType = "LIMIT"
+	MarketETH   Market    = "ETH"
 )
 
 type (
@@ -32,12 +24,13 @@ type (
 	Market    string
 
 	PlaceOrderRequest struct {
-		UserID int64
-		Type   OrderType
-		Bid    bool
-		Size   float64
-		Price  float64
-		Market Market
+		UserID   int64
+		Leverage float64
+		Type     OrderType
+		Bid      bool
+		Size     float64
+		Price    float64
+		Market   Market
 	}
 
 	Order struct {
@@ -68,74 +61,13 @@ type (
 	}
 )
 
-//	type User struct {
-//		ID         int64
-//		PrivateKey *ecdsa.PrivateKey
-//	}
-type User struct {
-	ID         string
-	Balances   map[string]float64
-	Positions  []Position
-	PrivateKey *ecdsa.PrivateKey
-}
-
-func NewUser(id string, privKey string) *User {
-	pk, err := crypto.HexToECDSA(privKey)
-	if err != nil {
-		panic(err)
-	}
-
-	return &User{
-		ID:         id,
-		Balances:   make(map[string]float64),
-		Positions:  []Position{},
-		PrivateKey: pk,
-	}
-}
-
-func StartServer() {
+func StartServer(ex *Exchange) {
 	e := echo.New()
 	e.HTTPErrorHandler = httpErrorHandler
 
-	client, err := ethclient.Dial("http://localhost:8545")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	ex, err := NewExchange(exchangePrivateKey, client)
-	if err != nil {
-		log.Fatal(err)
-	}
-	buyerAddressStr := "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
-	buyerBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(buyerAddressStr), nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("buyer: ", buyerBalance)
-
-	sellerAddressStr := "0xFFcf8FDEE72ac11b5c542428B35EEF5769C409f0"
-	sellerBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(sellerAddressStr), nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("seller: ", sellerBalance)
-	johnAddressStr := "0x22d491Bde2303f2f43325b2108D26f1eAbA1e32b"
-	johnBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(johnAddressStr), nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("John: ", johnBalance)
-
-	exchangeAddressString := "0xd03ea8624C8C5987235048901fB614fDcA89b117"
-	exchangeBalance, err := client.BalanceAt(context.Background(), common.HexToAddress(exchangeAddressString), nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Print("Exchange: ", exchangeBalance, "\n")
-
-	ex.registerUser("4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d", 0)
-	ex.registerUser("6cbed15c793ce57650b9877cf6fa156fbef513c4e6134f022a85b1ffdd59b2a1", 1)
-	ex.registerUser("6370fd033278c143179d81c5526140625662b8daa446c22ee2d73db3707e620c", 2)
+	ex.registerUser(0)
+	ex.registerUser(1)
+	ex.registerUser(2)
 
 	e.GET("/trades/:market", ex.handleGetTrades)
 	e.GET("/book/:market", ex.handleGetMarket)
@@ -154,52 +86,50 @@ func httpErrorHandler(err error, c echo.Context) {
 	fmt.Println(err)
 }
 
+func NewMarketConfig(initialMarginRequirement, maximumLeverage, maintenanceMargin, tickSize, minOrder, quantityStep float64) *margin.MarketConfig {
+	return &margin.MarketConfig{
+		InitialMarginRequirement: initialMarginRequirement,
+		MaximumLeverage:          maximumLeverage,
+		MaintenanceMargin:        maintenanceMargin,
+		TickSize:                 tickSize,
+		MinOrder:                 minOrder,
+		QuantityStep:             quantityStep,
+	}
+}
+
 type Exchange struct {
-	Client *ethclient.Client
-	mu     sync.RWMutex
-	Users  map[int64]*User
+	mu    sync.RWMutex
+	Users map[int64]*margin.User
+
+	MarketConfig map[Market]*margin.MarketConfig
+
 	// Orders maps users to their orders
 	Orders     map[int64][]*orderbook.Order
-	PrivateKey *ecdsa.PrivateKey
 	orderbooks map[Market]*orderbook.Orderbook
 }
 
-func NewExchange(privateKey string, client *ethclient.Client) (*Exchange, error) {
+func NewExchange() (*Exchange, error) {
 	orderbooks := make(map[Market]*orderbook.Orderbook)
 	orderbooks[MarketETH] = orderbook.NewOrderbook()
 
-	pk, err := crypto.HexToECDSA(privateKey)
-	if err != nil {
-		return nil, err
-	}
+	marketConfigs := make(map[Market]*margin.MarketConfig)
+	marketConfigs[MarketETH] = NewMarketConfig(0.10, 10.0, 0.05, 0.01, 0.01, 0.001) // use marketConfigs
 
 	return &Exchange{
-		Client:     client,
-		Users:      make(map[int64]*User),
-		Orders:     make(map[int64][]*orderbook.Order),
-		PrivateKey: pk,
-		orderbooks: orderbooks,
+		Users:        make(map[int64]*margin.User),
+		Orders:       make(map[int64][]*orderbook.Order),
+		orderbooks:   orderbooks,
+		MarketConfig: marketConfigs,
 	}, nil
 }
 
-func (ex *Exchange) registerUser(pk string, userID int64) {
-	user := NewUser(pk, userID)
+func (ex *Exchange) registerUser(userID int64) {
+	user := margin.NewUser(userID)
 	ex.Users[user.ID] = user
 
-	// Derive the public key from the private key
-	publicKey := user.PrivateKey.Public()
-
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		log.Fatal("error casting public key to ECDSA")
-	}
-
-	// Convert the public key to an Ethereum address
-	address := crypto.PubkeyToAddress(*publicKeyECDSA)
-
 	logrus.WithFields(logrus.Fields{
+		"balance": user.Balance,
 		"id":      userID,
-		"address": address.Hex(),
 	}).Info("new exchange user")
 }
 
@@ -263,6 +193,7 @@ func (ex *Exchange) cancelOrder(c echo.Context) error {
 
 	ob := ex.orderbooks[MarketETH]
 	order := ob.Orders[int64(id)]
+
 	ob.CancelOrder(order)
 
 	log.Println("order canceled id => ", id)
@@ -315,6 +246,7 @@ func (ex *Exchange) handleGetOrders(c echo.Context) error {
 	ex.mu.RUnlock()
 	return c.JSON(http.StatusOK, ordersResp)
 }
+
 func (ex *Exchange) handleGetMarket(c echo.Context) error {
 	market := Market(c.Param("market"))
 	ob, ok := ex.orderbooks[market]
@@ -359,6 +291,34 @@ func (ex *Exchange) handleGetMarket(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, orderbookData)
 
+}
+
+// Check if the order size is within the maximum allowable size given the user's balance and the market's max leverage
+func (ex *Exchange) handleCheckMaxContractSize(userID int64, market Market, orderSize float64) error {
+	ex.mu.RLock()
+	user, userExists := ex.Users[userID]
+	ex.mu.RUnlock()
+
+	if !userExists {
+		return fmt.Errorf("user not found")
+	}
+
+	marketConfig, marketExists := ex.MarketConfig[market]
+
+	if !marketExists {
+		return fmt.Errorf("market not found")
+	}
+
+	equity := user.UpdateEquity()
+	price := ex.calculatePrice(market) // assuming you have a method to get the current price
+	maxContractSize := (equity * marketConfig.MaximumLeverage) / price
+
+	if orderSize > maxContractSize {
+		return fmt.Errorf("order size too large: balance %f, maxContractSize %f, order size %f",
+			equity, maxContractSize, orderSize)
+	}
+
+	return nil
 }
 
 func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order) ([]orderbook.Match, []*MatchedOrder) {
@@ -434,31 +394,62 @@ type PlaceOrderResponse struct {
 	OrderID int64
 }
 
-func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
-	var placeOrderData PlaceOrderRequest
+// func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
+// 	var placeOrderData PlaceOrderRequest
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&placeOrderData); err != nil {
+// 	if err := json.NewDecoder(c.Request().Body).Decode(&placeOrderData); err != nil {
+// 		return err
+// 	}
+
+// 	market := Market(placeOrderData.Market)
+// 	order := orderbook.NewOrder(placeOrderData.Bid, placeOrderData.Size, placeOrderData.UserID, placeOrderData.Leverage)
+
+// 	// Limit orders
+// 	if placeOrderData.Type == LimitOrder {
+// 		if err := ex.handlePlaceLimitOrder(market, placeOrderData.Price, order); err != nil {
+// 			return err
+// 		}
+
+// 	}
+// 	// Market orders
+// 	if placeOrderData.Type == MarketOrder {
+// 		matches, _ := ex.handlePlaceMarketOrder(market, order)
+
+// 		if err := ex.handleMatches(matches); err != nil {
+// 			return err
+// 		}
+
+// 	}
+
+//		resp := &PlaceOrderResponse{
+//			OrderID: order.ID,
+//		}
+//		return c.JSON(200, resp)
+//	}
+
+func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
+	req := new(PlaceOrderRequest)
+	if err := c.Bind(req); err != nil {
 		return err
 	}
 
-	market := Market(placeOrderData.Market)
-	order := orderbook.NewOrder(placeOrderData.Bid, placeOrderData.Size, placeOrderData.UserID)
-
-	// Limit orders
-	if placeOrderData.Type == LimitOrder {
-		if err := ex.handlePlaceLimitOrder(market, placeOrderData.Price, order); err != nil {
-			return err
-		}
-
+	// Perform the check before placing the order
+	if err := ex.handleCheckMaxContractSize(req.UserID, req.Market, req.Size); err != nil {
+		return c.JSON(http.StatusBadRequest, APIError{Error: err.Error()})
 	}
-	// Market orders
-	if placeOrderData.Type == MarketOrder {
-		matches, _ := ex.handlePlaceMarketOrder(market, order)
 
+	// If the check passes, create the order and add it to the orderbook
+	order := orderbook.NewOrder(req.Bid, req.Size, req.UserID, req.Leverage)
+
+	if req.Type == MarketOrder {
+		matches, _ := ex.handlePlaceMarketOrder(req.Market, order)
 		if err := ex.handleMatches(matches); err != nil {
 			return err
 		}
-
+	} else if req.Type == LimitOrder {
+		if err := ex.handlePlaceLimitOrder(req.Market, req.Price, order); err != nil {
+			return err
+		}
 	}
 
 	resp := &PlaceOrderResponse{
@@ -467,63 +458,13 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 	return c.JSON(200, resp)
 }
 
-// func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
-// 	makerFeeRate := 0.1 // 10% maker fee
-// 	takerFeeRate := 0.3 // 30% taker fee
-
-// 	for _, match := range matches {
-// 		maker, ok := ex.Users[match.Ask.UserID]
-// 		if !ok {
-// 			return fmt.Errorf("user not found: %d", match.Ask.UserID)
-// 		}
-
-// 		taker, ok := ex.Users[match.Bid.UserID]
-// 		if !ok {
-// 			return fmt.Errorf("user not found: %d", match.Bid.UserID)
-// 		}
-
-// 		// Calculate the fees
-// 		makerFee := match.SizeFilled * makerFeeRate
-// 		takerFee := match.SizeFilled * takerFeeRate
-
-// 		// Deduct the fees from the filled size
-// 		makerAmount := match.SizeFilled - makerFee
-// 		takerAmount := match.SizeFilled - takerFee
-
-// 		// Transfer from maker to taker
-// 		makerAddress := crypto.PubkeyToAddress(maker.PrivateKey.PublicKey)
-// 		takerAddress := crypto.PubkeyToAddress(taker.PrivateKey.PublicKey)
-// 		err := transferETH(ex.Client, maker.PrivateKey, takerAddress, big.NewInt(int64(makerAmount)))
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		// Transfer from taker to maker
-// 		err = transferETH(ex.Client, taker.PrivateKey, makerAddress, big.NewInt(int64(takerAmount)))
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		// Transfer fees to the exchange's address
-// 		exchangeAddress := crypto.PubkeyToAddress(ex.PrivateKey.PublicKey)
-
-// 		// Transfer fee from maker to the exchange
-// 		err = transferETH(ex.Client, maker.PrivateKey, exchangeAddress, big.NewInt(int64(makerFee)))
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		// Transfer fee from taker to the exchange
-// 		err = transferETH(ex.Client, taker.PrivateKey, exchangeAddress, big.NewInt(int64(takerFee)))
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
-
-// 	return nil
-// }
-
 func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
+	// Assume a default user (could be your margin user) to receive the fees
+	feeRecipientUser, ok := ex.Users[2]
+	if !ok {
+		return fmt.Errorf("fee recipient user not found")
+	}
+
 	for _, match := range matches {
 		fromUser, ok := ex.Users[match.Ask.UserID]
 		if !ok {
@@ -534,50 +475,35 @@ func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
 		if !ok {
 			return fmt.Errorf("user not found: %d", match.Bid.UserID)
 		}
-		toAddress := crypto.PubkeyToAddress(toUser.PrivateKey.PublicKey)
 
-		// exchangePubKey := ex.PrivateKey.Public()
-		// publicKeyECDSA, ok := exchangePubKey.(*ecdsa.PublicKey)
-		// if !ok {
-		// 	return fmt.Errorf("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
-		// }
+		// Calculate the fee from the trade amount
+		tradeAmount := match.SizeFilled * match.Ask.Leverage // assuming this is the amount of the trade
+		fee := tradeAmount * 0.01                            // taking a 1% fee for example
 
-		amount := big.NewInt(int64(match.SizeFilled))
+		// Let's log the status before the trade
+		logrus.WithFields(logrus.Fields{
+			"fromUserBalance": fromUser.Balance["ETH"],
+			"toUserBalance":   toUser.Balance["ETH"],
+			"tradeAmount":     tradeAmount,
+		}).Info("Before trade")
 
-		transferETH(ex.Client, fromUser.PrivateKey, toAddress, amount)
+		// Let the users handle their trades
+		fromUser.HandleTrade("ETH", match.SizeFilled, false)
+		toUser.HandleTrade("ETH", match.SizeFilled, true)
+
+		// Deduct the fee from the users
+		fromUser.Balance["ETH"] -= fee
+		toUser.Balance["ETH"] -= fee
+
+		// Add the fee to the fee recipient user's balance
+		feeRecipientUser.Balance["ETH"] += fee * 2 // because we took fees from both users
+
+		// Let's log the status after the trade
+		logrus.WithFields(logrus.Fields{
+			"fromUserBalance": fromUser.Balance["ETH"],
+			"toUserBalance":   toUser.Balance["ETH"],
+			"fee recipient":   feeRecipientUser.Balance["ETH"],
+		}).Info("After trade")
 	}
-
 	return nil
-}
-
-func transferETH(client *ethclient.Client, fromPrivKey *ecdsa.PrivateKey, to common.Address, amount *big.Int) error {
-	ctx := context.Background()
-	publicKey := fromPrivKey.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return fmt.Errorf("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
-	}
-
-	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	nonce, err := client.PendingNonceAt(ctx, fromAddress)
-	if err != nil {
-		return err
-	}
-
-	gasLimit := uint64(21000) // in units
-	gasPrice, err := client.SuggestGasPrice(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	tx := types.NewTransaction(nonce, to, amount, gasLimit, gasPrice, nil)
-
-	chainID := big.NewInt(1337)
-
-	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), fromPrivKey)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return client.SendTransaction(ctx, signedTx)
 }

@@ -15,6 +15,7 @@ type Config struct {
 	ExchangeClient *client.Client
 	MakeInterval   time.Duration
 	PriceOffset    float64
+	Leverage       float64
 }
 
 type MarketMaker struct {
@@ -25,6 +26,7 @@ type MarketMaker struct {
 	priceOffset    float64
 	exchangeClient *client.Client
 	makeInterval   time.Duration
+	leverage       float64
 }
 
 func NewMarketMaker(cfg Config) *MarketMaker {
@@ -104,10 +106,11 @@ func (mm *MarketMaker) makerLoop() {
 
 func (mm *MarketMaker) placeOrder(bid bool, price float64) error {
 	bidOrder := &client.PlaceOrderParams{
-		UserID: mm.userID,
-		Size:   mm.orderSize,
-		Bid:    bid,
-		Price:  price,
+		UserID:   mm.userID,
+		Size:     mm.orderSize,
+		Bid:      bid,
+		Price:    price,
+		Leverage: mm.leverage,
 	}
 	_, err := mm.exchangeClient.PlaceLimitOrder(bidOrder)
 	return err
@@ -122,10 +125,11 @@ func (mm *MarketMaker) seedMarket() error {
 	}).Info("orderbooks empty => seeding market!")
 
 	bidOrder := &client.PlaceOrderParams{
-		UserID: mm.userID,
-		Size:   mm.orderSize,
-		Bid:    true,
-		Price:  currentPrice - mm.seedOffset,
+		UserID:   mm.userID,
+		Size:     mm.orderSize,
+		Leverage: mm.leverage,
+		Bid:      true,
+		Price:    currentPrice - mm.seedOffset,
 	}
 	_, err := mm.exchangeClient.PlaceLimitOrder(bidOrder)
 	if err != nil {
@@ -133,10 +137,11 @@ func (mm *MarketMaker) seedMarket() error {
 	}
 
 	askOrder := &client.PlaceOrderParams{
-		UserID: mm.userID,
-		Size:   mm.orderSize,
-		Bid:    false,
-		Price:  currentPrice + mm.seedOffset,
+		UserID:   mm.userID,
+		Size:     mm.orderSize,
+		Leverage: mm.leverage,
+		Bid:      false,
+		Price:    currentPrice + mm.seedOffset,
 	}
 	_, err = mm.exchangeClient.PlaceLimitOrder(askOrder)
 

@@ -30,6 +30,7 @@ type Order struct {
 	UserID    int64
 	Size      float64
 	Bid       bool
+	Price     float64
 	Limit     *Limit
 	Timestamp int64
 }
@@ -42,7 +43,7 @@ func (o Orders) Less(i, j int) bool { return o[i].Timestamp < o[j].Timestamp }
 
 var idCounter int64
 
-func NewOrder(bid bool, size float64, userID int64) *Order {
+func NewOrder(bid bool, size float64, userID int64, leverage float64) *Order {
 	newID := atomic.AddInt64(&idCounter, 1)
 	return &Order{
 		UserID:    userID,
@@ -289,9 +290,9 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 		ob.Trades = append(ob.Trades, trade)
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"currentPrice": ob.Trades[len(ob.Trades)-1].Price,
-	}).Info()
+	// logrus.WithFields(logrus.Fields{
+	// 	"currentPrice": ob.Trades[len(ob.Trades)-1].Price,
+	// }).Info()
 
 	return matches
 }

@@ -98,10 +98,11 @@ func (c *Client) GetBestBid() (*server.Order, error) {
 }
 
 type PlaceOrderParams struct {
-	UserID int64
-	Bid    bool
-	Price  float64
-	Size   float64
+	UserID   int64
+	Bid      bool
+	Price    float64
+	Size     float64
+	Leverage float64
 }
 
 func (c *Client) PlaceLimitOrder(p *PlaceOrderParams) (*server.PlaceOrderResponse, error) {
@@ -110,12 +111,13 @@ func (c *Client) PlaceLimitOrder(p *PlaceOrderParams) (*server.PlaceOrderRespons
 	}
 
 	params := &server.PlaceOrderRequest{
-		UserID: p.UserID,
-		Type:   server.LimitOrder,
-		Bid:    p.Bid,
-		Size:   p.Size,
-		Price:  p.Price,
-		Market: server.MarketETH,
+		UserID:   p.UserID,
+		Type:     server.LimitOrder,
+		Bid:      p.Bid,
+		Size:     p.Size,
+		Price:    p.Price,
+		Market:   server.MarketETH,
+		Leverage: p.Leverage,
 	}
 
 	body, err := json.Marshal(params)
@@ -166,11 +168,12 @@ func (c *Client) GetOrders(userID int64) (*server.GetOrdersResponse, error) {
 
 func (c *Client) PlaceMarketOrder(p *PlaceOrderParams) (*server.PlaceOrderResponse, error) {
 	params := &server.PlaceOrderRequest{
-		UserID: p.UserID,
-		Type:   server.MarketOrder,
-		Bid:    p.Bid,
-		Size:   p.Size,
-		Market: server.MarketETH,
+		UserID:   p.UserID,
+		Type:     server.MarketOrder,
+		Bid:      p.Bid,
+		Size:     p.Size,
+		Market:   server.MarketETH,
+		Leverage: p.Leverage,
 	}
 
 	body, err := json.Marshal(params)
